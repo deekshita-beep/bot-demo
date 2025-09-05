@@ -1,70 +1,52 @@
-import pandas as pd
 from flask import Flask, request, jsonify
-from langdetect import detect
-from googletrans import Translator
-
-# Load student data
-students = pd.read_csv("students.csv")
-translator = Translator()
+import pandas as pd
+from deep_translator import GoogleTranslator
 
 app = Flask(__name__)
 
-def get_student(roll_no):
-    row = students[students["Roll No"] == roll_no]
-    return row.iloc[0] if not row.empty else None
+# Load your student database CSV
+df = pd.read_csv("students.csv")  # Make sure this CSV is in the same folder
 
-@app.route("/chat", methods=["POST"])
-def chat():
+# Detect language and translate to English if needed
+def translate_to_english(text):
+    try:
+        return GoogleTranslator(source='auto', target='en').translate(text)
+    except:
+        return text
+
+# Basic query handler
+@app.route("/query", methods=["POST"])
+def handle_query():
     data = request.json
-    roll_no = data.get("roll_no")
     user_query = data.get("query", "")
+    
+    # Translate query to English
+    query_en = translate_to_english(user_query).lower()
+    
+    response = "Sorry, I couldn't understand your query."
 
-    student = get_student(roll_no)
-    if student is None:
-        return jsonify({"error": "Student not found"}), 404
+    # Example checks
+    if "due" in query_en or "fee" in query_en:
+        student_name = data.get("student", "")
+        student_row = df[df["Name"].str.lower() == student_name.lower()]
+        if not student_row.empty:
+            due = student_row.iloc[0]["Fee Due"]
+            response = f"{student_name}'s fee due is {due}."
+    elif "timetable" in query_en or "time table" in query_en:
+        student_name = data.get("student", "")
+        student_row = df[df["Name"].str.lower() == student_name.lower()]
+        if not student_row.empty:
+            timetable = student_row.iloc[0]["Time Table"]
+            response = f"{student_name}'s timetable: {timetable}."
+    elif "attendance" in query_en:
+        student_name = data.get("student", "")
+        student_row = df[df["Name"].str.lower() == student_name.lower()]
+        if not student_row.empty:
+            attendance = student_row.iloc[0]["Attendance %"]
+            response = f"{student_name}'s attendance is {attendance}%."
 
-    # 1. Detect language
-    lang = detect(user_query)
-
-    # 2. Translate to English
-    translated = translator.translate(user_query, src=lang, dest="en").text.lower()
-
-    # 3. Simple intent matching
-    response = "Sorry, I couldn’t understand."
-    intent = "unknown"
-
-    if "fee" in translated and "due" in translated:
-        response = f"Your fee due is {student['Fee Due (INR)']} INR."
-        intent = "fee_due"
-    elif "total fee" in translated:
-        response = f"Your total fee is {student['Total Fee (INR)']} INR."
-        intent = "total_fee"
-    elif "paid" in translated or "already paid" in translated:
-        response = f"You have already paid {student['Fee Paid (INR)']} INR."
-        intent = "fee_paid"
-    elif "attendance" in translated:
-        response = f"Your attendance is {student['Attendance %']}%."
-        intent = "attendance"
-    elif "faculty" in translated:
-        response = f"Your faculty is {student['Faculty Name']}."
-        intent = "faculty"
-    elif "holiday" in translated:
-        response = f"Upcoming holidays: {student['Holidays List']}."
-        intent = "holidays"
-    elif "timetable" in translated or "time table" in translated:
-        response = f"Your timetable: {student['Timetable']}."
-        intent = "timetable"
-
-    # 4. Translate response back
-    final_response = translator.translate(response, src="en", dest=lang).text
-
-    return jsonify({
-        "original_query": user_query,
-        "detected_language": lang,
-        "translated_query": translated,
-        "intent": intent,
-        "response": final_response
-    })
+    return jsonify({"response": response})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000)
+
